@@ -1,36 +1,13 @@
 from rest_framework import routers, serializers, viewsets
+from rest_framework.relations import PrimaryKeyRelatedField
 
 from manger.models import Baby, Journal
 
 
-class BabySerializer(serializers.HyperlinkedModelSerializer):
+class BabySerializer(serializers.ModelSerializer):
     class Meta:
         model = Baby
         fields = ('id', 'name', 'gender', 'birthday', 'photo', 'grade', 'is_study')
-
-
-class BabySerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True)
-    name = serializers.CharField(max_length=Baby.MAX_LENGTH_NAME)
-    gender = serializers.ChoiceField(choices=Baby.GENDER_CHOICES)
-    birthday = serializers.DateField()
-    photo = serializers.CharField(max_length=Baby.MAX_LENGTH_PHOTO, required=False)
-    grade = serializers.IntegerField(required=False)
-    is_study = serializers.BooleanField(required=False, default=False)
-
-    def create(self, validated_data):
-        return Baby.objects.create(**validated_data)
-
-    def update(self, instance, validated_data):
-        instance.name = validated_data.get('name', instance.name)
-        instance.gender = validated_data.get('gender', instance.gender)
-        instance.birthday = validated_data.get('birthday', instance.birthday)
-        instance.photo = validated_data.get('photo', instance.photo)
-        instance.grade = validated_data.get('grade', instance.grade)
-        instance.is_study = validated_data.get('is_study', instance.is_study)
-
-        instance.save()
-        return instance
 
 
 class BabyViewSet(viewsets.ModelViewSet):
@@ -38,10 +15,42 @@ class BabyViewSet(viewsets.ModelViewSet):
     serializer_class = BabySerializer
 
 
-class JournalSerializer(serializers.HyperlinkedModelSerializer):
+class JournalSerializer(serializers.ModelSerializer):
+    DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
+
+    baby = PrimaryKeyRelatedField(queryset=Baby.objects.all())
+
+    def validate(self, attrs):
+        if (attrs.get('income_time') is None) ^ (attrs.get('income_escort') is None):
+            raise serializers.ValidationError('"income_time" and "income_escort" must be determined simultaneously')
+
+        if (attrs.get('outcome_time') is None) ^ (attrs.get('outcome_escort') is None):
+            raise serializers.ValidationError('"income_time" and "outcome_escort" must be determined simultaneously')
+
+        if (
+            attrs.get('income_time') and
+            attrs.get('outcome_time') and
+            attrs['outcome_time'] < attrs['income_time']
+        ):
+            raise serializers.ValidationError('"outcome_time" should be later than "income_time"')
+
+        return attrs
+
+    def create(self, validated_data):
+        if validated_data.get('outcome_time') and validated_data.get('income_time') is None:
+            raise serializers.ValidationError('can not create outcome without income')
+
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('outcome_time') and validated_data.get('income_time') is None:
+            raise serializers.ValidationError('can not create outcome without income')
+
+        return super().update(instance, validated_data)
+
     class Meta:
         model = Journal
-        fields = ('id', 'baby_id', 'income_time', 'income_escort', 'outcome_time', 'outcome_escort')
+        fields = ('id', 'baby', 'income_time', 'income_escort', 'outcome_time', 'outcome_escort')
 
 
 class JournalViewSet(viewsets.ModelViewSet):
